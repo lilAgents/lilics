@@ -110,6 +110,23 @@ const description =
             </div>
           </div>
 
+          <div class="dsec">
+            <div class="dsec-h">Share it</div>
+            <div class="share-rows">
+              <div class="share-row">
+                <span class="share-lbl">Event link</span>
+                <input id="share-url" type="text" readonly spellcheck="false" />
+                <button class="btn btn--sm" id="copy-share" type="button">Copy</button>
+              </div>
+              <div class="share-row">
+                <span class="share-lbl">Direct .ics link</span>
+                <input id="share-dl" type="text" readonly spellcheck="false" />
+                <button class="btn btn--sm" id="copy-dl" type="button">Copy</button>
+              </div>
+              <p class="share-note">The event link opens this page with the buttons ready to click. The direct link downloads the .ics immediately, which is the one to label "Add to Apple Calendar" in emails.</p>
+            </div>
+          </div>
+
           <div class="code-head">
             <span class="code-file">paste-ready links for emails and pages</span>
             <button class="btn btn--sm" id="copy-btn" type="button">Copy HTML</button>

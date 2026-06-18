@@ -116,11 +116,44 @@ function buildIcs(ev) {
   return lines.join('\r\n') + '\r\n';
 }
 
+/* ---------- share links (the event travels inside the URL) ---------- */
+const b64urlEnc = (obj) => btoa(unescape(encodeURIComponent(JSON.stringify(obj)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64urlDec = (s) => JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/')))));
+
+const localDateStr = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const localInputStr = (d) => localDateStr(d) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+function sharePayload(ev) {
+  // Timed events travel as absolute epoch times so they land correctly in
+  // any timezone; all-day events travel as plain dates so they never shift.
+  return ev.allDay
+    ? { t: ev.title, l: ev.location, d: ev.desc, a: 1, s: localDateStr(ev.start), e: localDateStr(ev.end) }
+    : { t: ev.title, l: ev.location, d: ev.desc, a: 0, s: ev.start.getTime(), e: ev.end.getTime() };
+}
+function shareUrl(ev) {
+  return location.origin + location.pathname + '#e=' + b64urlEnc(sharePayload(ev));
+}
+
+function applyShared(p) {
+  $('#f-title').value = p.t || '';
+  $('#f-location').value = p.l || '';
+  $('#f-desc').value = p.d || '';
+  $('#f-allday').checked = !!p.a;
+  if (p.a) {
+    $('#f-start').value = p.s + 'T09:00';
+    $('#f-end').value = p.e + 'T17:00';
+  } else {
+    $('#f-start').value = localInputStr(new Date(p.s));
+    $('#f-end').value = localInputStr(new Date(p.e));
+  }
+}
+
 /* ---------- render ---------- */
 function snippet(ev) {
   return `<a href="${googleUrl(ev)}" target="_blank">Add to Google Calendar</a>
 <a href="${outlookUrl(ev, 'outlook.live.com')}" target="_blank">Add to Outlook</a>
-<a href="${yahooUrl(ev)}" target="_blank">Add to Yahoo Calendar</a>`;
+<a href="${yahooUrl(ev)}" target="_blank">Add to Yahoo Calendar</a>
+<a href="${shareUrl(ev)}&dl=1">Add to Apple Calendar (.ics)</a>`;
 }
 
 function render() {
@@ -128,6 +161,8 @@ function render() {
   const notes = $('#notes');
   if (!ev) {
     $('#code').textContent = 'Set a start time on the left and the links build themselves.';
+    $('#share-url').value = '';
+    $('#share-dl').value = '';
     notes.innerHTML = '';
     ['google', 'outlook', 'office', 'yahoo'].forEach((k) => { $('#link-' + k).removeAttribute('href'); });
     return;
@@ -136,8 +171,11 @@ function render() {
   $('#link-outlook').href = outlookUrl(ev, 'outlook.live.com');
   $('#link-office').href = outlookUrl(ev, 'outlook.office.com');
   $('#link-yahoo').href = yahooUrl(ev);
+  const share = shareUrl(ev);
+  $('#share-url').value = share;
+  $('#share-dl').value = share + '&dl=1';
   $('#code').textContent = snippet(ev);
-  notes.innerHTML = `<div class="note note--ok">${ev.allDay ? 'All-day event' : 'Timed event, converted from your local timezone'}: ${ev.title}. Links and .ics are live.</div>`;
+  notes.innerHTML = `<div class="note note--ok">${ev.allDay ? 'All-day event' : 'Timed event, converted from your local timezone'}: ${ev.title}. Links, share URL, and .ics are live.</div>`;
 }
 
 function flash(btn, label) {
@@ -154,6 +192,29 @@ function fallbackCopy(text, done) {
   document.body.removeChild(ta); done();
 }
 
+function downloadIcs() {
+  const ev = readEvent();
+  if (!ev) return false;
+  const blob = new Blob([buildIcs(ev)], { type: 'text/calendar' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = (ev.title.replace(/[^a-z0-9 _-]/gi, '') || 'event') + '.ics';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return true;
+}
+
+function copyHandler(btnSel, getText) {
+  $(btnSel).addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    const text = getText();
+    if (!text) return;
+    const done = () => flash(btn, 'Copied');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    else fallbackCopy(text, done);
+  });
+}
+
 function initIcs() {
   initTheme();
   ['#f-title', '#f-location', '#f-desc', '#f-start', '#f-end'].forEach((sel) =>
@@ -161,24 +222,25 @@ function initIcs() {
   $('#f-allday').addEventListener('change', render);
 
   $('#dl-ics').addEventListener('click', (e) => {
-    const ev = readEvent();
-    if (!ev) return;
-    const blob = new Blob([buildIcs(ev)], { type: 'text/calendar' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = (ev.title.replace(/[^a-z0-9 _-]/gi, '') || 'event') + '.ics';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    flash(e.currentTarget, 'Saved');
+    if (downloadIcs()) flash(e.currentTarget, 'Saved');
   });
 
-  $('#copy-btn').addEventListener('click', (e) => {
-    const btn = e.currentTarget;
-    const text = $('#code').textContent;
-    const done = () => flash(btn, 'Copied');
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
-    else fallbackCopy(text, done);
-  });
+  copyHandler('#copy-btn', () => $('#code').textContent);
+  copyHandler('#copy-share', () => $('#share-url').value);
+  copyHandler('#copy-dl', () => $('#share-dl').value);
+
+  // Opening a shared event link prefills everything and arms the buttons;
+  // the &dl=1 variant downloads the .ics immediately.
+  const hashEvent = (location.hash.match(/[#&]e=([^&]+)/) || [])[1];
+  if (hashEvent) {
+    try {
+      applyShared(b64urlDec(hashEvent));
+      render();
+      $('#notes').innerHTML = `<div class="note note--ok">You opened a shared event. The buttons above are ready to click.</div>` + $('#notes').innerHTML;
+      if (/[#&]dl=1/.test(location.hash)) downloadIcs();
+      return;
+    } catch (e) { /* malformed hash; fall through to a blank form */ }
+  }
 
   render();
 }
