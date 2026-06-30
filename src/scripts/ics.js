@@ -160,7 +160,7 @@ function render() {
   const ev = readEvent();
   const notes = $('#notes');
   if (!ev) {
-    $('#code').textContent = 'Set a start time on the left and the links build themselves.';
+    $('#code').textContent = 'Set a start time on the left (or check All-day event for a date-only event) and the links build themselves.';
     $('#share-url').value = '';
     $('#share-dl').value = '';
     notes.innerHTML = '';
@@ -215,11 +215,25 @@ function copyHandler(btnSel, getText) {
   });
 }
 
+// All-day events only need a date. A datetime-local input with no time entered
+// is an empty value, which is why picking just a date looked broken, so swap
+// the start/end inputs to plain date pickers while All-day is on.
+function syncAllDay() {
+  const allDay = $('#f-allday').checked;
+  ['#f-start', '#f-end'].forEach((sel) => {
+    const el = $(sel);
+    const v = el.value;
+    el.type = allDay ? 'date' : 'datetime-local';
+    if (v) el.value = allDay ? v.slice(0, 10) : (v.length === 10 ? v + 'T09:00' : v);
+  });
+}
+
 function initIcs() {
   initTheme();
+  syncAllDay();
   ['#f-title', '#f-location', '#f-desc', '#f-start', '#f-end'].forEach((sel) =>
     $(sel).addEventListener('input', render));
-  $('#f-allday').addEventListener('change', render);
+  $('#f-allday').addEventListener('change', () => { syncAllDay(); render(); });
 
   $('#dl-ics').addEventListener('click', (e) => {
     if (downloadIcs()) flash(e.currentTarget, 'Saved');
@@ -235,6 +249,7 @@ function initIcs() {
   if (hashEvent) {
     try {
       applyShared(b64urlDec(hashEvent));
+      syncAllDay();
       render();
       $('#notes').innerHTML = `<div class="note note--ok">You opened a shared event. The buttons above are ready to click.</div>` + $('#notes').innerHTML;
       if (/[#&]dl=1/.test(location.hash)) downloadIcs();
